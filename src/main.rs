@@ -1,7 +1,7 @@
 use dbus::{blocking::Connection};
 use std::time::Duration;
 use regex::{Regex};
-use clap::{Arg, App};
+use clap::{Arg, App, AppSettings};
 use confy;
 use serde_derive::{Serialize, Deserialize};
 
@@ -68,11 +68,23 @@ fn get_player_name_from_bus(interface: &str) -> String {
     return player;
 }
 
-fn dbus_call(conn: &Connection, bus: &str, method: &str) {
+fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
     let p = conn.with_proxy(bus, "/org/mpris/MediaPlayer2", Duration::from_millis(5000));
-    p.method_call("org.mpris.MediaPlayer2.Player", method, ()).unwrap_or_else(|error| {
-        eprintln!("Problem calling the dbus method: {:?}", error);
-    });
+
+    if !arg.is_empty() {
+        let offset = arg.parse::<i64>().unwrap_or_else(|error| {
+            println!("Problem converting seek offset: {:?}", error);
+            0
+        });
+
+        p.method_call("org.mpris.MediaPlayer2.Player", method, (offset, )).unwrap_or_else(|error| {
+            eprintln!("Problem calling the dbus method: {:?}", error);
+        });
+    } else {
+        p.method_call("org.mpris.MediaPlayer2.Player", method, ()).unwrap_or_else(|error| {
+            eprintln!("Problem calling the dbus method: {:?}", error);
+        });
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -86,11 +98,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .long("list"))
         .subcommand(
             App::new("call")
+                .setting(AppSettings::AllowLeadingHyphen)
                 .about("Call a dbus method")
                 .arg(Arg::new("method")
                     .about("Method to call")
                     .index(1)
                     .required(true))
+                .arg(Arg::new("arg")
+                    .about("Method argument")
+                    .index(2)
+                    .requires("method"))
                 .arg(Arg::new("all")
                     .about("Apply action to all discovered media players")
                     .long("all")
@@ -111,6 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if matches.is_present("call") {
         if let Some(ref sub_matches) = matches.subcommand_matches("call") {
             let requested_action = sub_matches.value_of("method").unwrap_or("").to_string();
+            let arg = sub_matches.value_of("arg").unwrap_or("").to_string();
 
             if !requested_action.is_empty() {
                 let conn = Connection::new_session()?;
@@ -118,14 +136,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 if sub_matches.is_present("all") {
                     for player in detected_players {
-                        dbus_call(&conn, &player, &requested_action);
+                        dbus_call(&conn, &player, &requested_action, &arg);
                     }
                 } else {
                     let sorted_players = sort_players(&detected_players, &cfg);
 
                     match sorted_players.first() {
                         Some(player) => {
-                            dbus_call(&conn, &(player.player_name), &requested_action);
+                            dbus_call(&conn, &(player.player_name), &requested_action, &arg);
                         }
                         None => (),
                     }
