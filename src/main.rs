@@ -4,6 +4,7 @@ use regex::{Regex};
 use clap::{Arg, App, AppSettings};
 use confy;
 use serde_derive::{Serialize, Deserialize};
+use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct PlayerPriority {
@@ -113,6 +114,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .long("all")
                     .requires("method"))
         )
+        .subcommand(
+            App::new("shuffle")
+                .about("Toggle shuffle option")
+        )
         .get_matches();
 
     let cfg = confy::load("mediaplayer-controller").unwrap_or_default();
@@ -122,6 +127,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let detected_players = find_media_players(&conn).unwrap();
         for name in detected_players {
             println!("{}", get_player_name_from_bus(&name));
+        }
+    }
+
+    if matches.is_present("shuffle") {
+        let conn = Connection::new_session()?;
+        let detected_players = find_media_players(&conn).unwrap();
+        match sort_players(&detected_players, &cfg).first() {
+            Some(player) => {
+                let p = conn.with_proxy(&(player.player_name), "/org/mpris/MediaPlayer2", Duration::from_millis(5000));
+                let shuffle_state: bool = p.get("org.mpris.MediaPlayer2.Player", "Shuffle")?;
+                p.set("org.mpris.MediaPlayer2.Player", "Shuffle", !shuffle_state).unwrap_or_else(|error| {
+                    eprintln!("Problem setting the dbus property: {:?}", error);
+                });
+            }
+            None => (),
         }
     }
 
