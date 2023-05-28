@@ -73,18 +73,48 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
     let p = conn.with_proxy(bus, "/org/mpris/MediaPlayer2", Duration::from_millis(5000));
 
     if !arg.is_empty() {
-        let offset = arg.parse::<i64>().unwrap_or_else(|error| {
-            println!("Problem converting seek offset: {:?}", error);
-            0
-        });
+        if method == "Volume" {
+            let action = arg.parse::<String>().unwrap_or_else(|error| {
+                println!("Problem converting volume action: {:?}", error);
+                String::from("")
+            });
 
-        p.method_call("org.mpris.MediaPlayer2.Player", method, (offset, )).unwrap_or_else(|error| {
-            eprintln!("Problem calling the dbus method: {:?}", error);
-        });
+            let volume : &dyn arg::RefArg = &(p.get("org.mpris.MediaPlayer2.Player", "Volume") as Result<Box<dyn arg::RefArg + 'static>, dbus::Error>).unwrap();
+
+            if let Some(volume) = volume.as_f64() {
+                if action == "+" {
+                    p.set("org.mpris.MediaPlayer2.Player", "Volume", volume + 0.05).unwrap_or({
+                        println!("Problem increasing volume");
+                    });
+                } else if action == "-" {
+                    p.set("org.mpris.MediaPlayer2.Player", "Volume", volume - 0.05).unwrap_or({
+                        println!("Problem lowering volume");
+                    });
+                }
+            }
+
+        } else {
+            let offset = arg.parse::<i64>().unwrap_or_else(|error| {
+                println!("Problem converting seek offset: {:?}", error);
+                0
+            });
+
+            p.method_call("org.mpris.MediaPlayer2.Player", method, (offset, )).unwrap_or_else(|error| {
+                eprintln!("Problem calling the dbus method: {:?}", error);
+            });
+        }
+
     } else {
-        p.method_call("org.mpris.MediaPlayer2.Player", method, ()).unwrap_or_else(|error| {
-            eprintln!("Problem calling the dbus method: {:?}", error);
-        });
+        if method == "Shuffle" {
+            let shuffle_state: bool = p.get("org.mpris.MediaPlayer2.Player", "Shuffle").unwrap();
+            p.set("org.mpris.MediaPlayer2.Player", "Shuffle", !shuffle_state).unwrap_or_else(|error| {
+                eprintln!("Problem setting the dbus property: {:?}", error);
+            });
+        } else {
+            p.method_call("org.mpris.MediaPlayer2.Player", method, ()).unwrap_or_else(|error| {
+                eprintln!("Problem calling the dbus method: {:?}", error);
+            });
+        }
     }
 }
 
