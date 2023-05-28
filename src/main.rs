@@ -1,7 +1,7 @@
-use dbus::{blocking::Connection};
+use dbus::{arg, blocking::Connection};
 use std::time::Duration;
 use regex::{Regex};
-use clap::{Arg, App, AppSettings};
+use clap::{Arg, ArgAction, Command};
 use confy;
 use serde_derive::{Serialize, Deserialize};
 use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
@@ -79,7 +79,7 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
                 String::from("")
             });
 
-            let volume : &dyn arg::RefArg = &(p.get("org.mpris.MediaPlayer2.Player", "Volume") as Result<Box<dyn arg::RefArg + 'static>, dbus::Error>).unwrap();
+            let volume: &dyn arg::RefArg = &(p.get("org.mpris.MediaPlayer2.Player", "Volume") as Result<Box<dyn arg::RefArg + 'static>, dbus::Error>).unwrap();
 
             if let Some(volume) = volume.as_f64() {
                 if action == "+" {
@@ -92,7 +92,6 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
                     });
                 }
             }
-
         } else {
             let offset = arg.parse::<i64>().unwrap_or_else(|error| {
                 println!("Problem converting seek offset: {:?}", error);
@@ -103,7 +102,6 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
                 eprintln!("Problem calling the dbus method: {:?}", error);
             });
         }
-
     } else {
         if method == "Shuffle" {
             let shuffle_state: bool = p.get("org.mpris.MediaPlayer2.Player", "Shuffle").unwrap();
@@ -119,72 +117,51 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let matches = App::new("Mediaplayer Controller")
-        .version("0.1.0")
+    let matches = Command::new("Mediaplayer Controller")
+        .version("0.2.0")
         .author("Marc-André Renaud <ma.renaud@slashvoid.com>")
         .about("Call various actions of active media players")
-        .arg(Arg::new("list")
-            .about("List discovered players")
-            .short('l')
-            .long("list"))
-        .subcommand(
-            App::new("call")
-                .setting(AppSettings::AllowLeadingHyphen)
-                .about("Call a dbus method")
-                .arg(Arg::new("method")
-                    .about("Method to call")
-                    .index(1)
-                    .required(true))
-                .arg(Arg::new("arg")
-                    .about("Method argument")
-                    .index(2)
-                    .requires("method"))
-                .arg(Arg::new("all")
-                    .about("Apply action to all discovered media players")
-                    .long("all")
-                    .requires("method"))
+        .subcommand(Command::new("list")
+            .about("List discovered players.")
         )
-        .subcommand(
-            App::new("shuffle")
-                .about("Toggle shuffle option")
+        .subcommand(Command::new("call")
+            //.setting(AppSettings::AllowLeadingHyphen)
+            .about("Call a dbus method")
+            .arg(Arg::new("method")
+                .help("Method to call")
+                .index(1)
+                .required(true))
+            .arg(Arg::new("arg")
+                .help("Method argument")
+                .index(2)
+                .requires("method"))
+            .arg(Arg::new("all")
+                .help("Apply action to all discovered media players")
+                .long("all")
+                .action(ArgAction::SetTrue)
+                .requires("method"))
         )
         .get_matches();
 
     let cfg = confy::load("mediaplayer-controller").unwrap_or_default();
 
-    if matches.is_present("list") {
-        let conn = Connection::new_session()?;
-        let detected_players = find_media_players(&conn).unwrap();
-        for name in detected_players {
-            println!("{}", get_player_name_from_bus(&name));
-        }
-    }
-
-    if matches.is_present("shuffle") {
-        let conn = Connection::new_session()?;
-        let detected_players = find_media_players(&conn).unwrap();
-        match sort_players(&detected_players, &cfg).first() {
-            Some(player) => {
-                let p = conn.with_proxy(&(player.player_name), "/org/mpris/MediaPlayer2", Duration::from_millis(5000));
-                let shuffle_state: bool = p.get("org.mpris.MediaPlayer2.Player", "Shuffle")?;
-                p.set("org.mpris.MediaPlayer2.Player", "Shuffle", !shuffle_state).unwrap_or_else(|error| {
-                    eprintln!("Problem setting the dbus property: {:?}", error);
-                });
+    match matches.subcommand() {
+        Some(("list", _sub_matches)) => {
+            let conn = Connection::new_session()?;
+            let detected_players = find_media_players(&conn).unwrap();
+            for name in detected_players {
+                println!("{}", get_player_name_from_bus(&name));
             }
-            None => (),
         }
-    }
-
-    if matches.is_present("call") {
-        if let Some(ref sub_matches) = matches.subcommand_matches("call") {
-            let requested_action = sub_matches.value_of("method").unwrap_or("").to_string();
-            let arg = sub_matches.value_of("arg").unwrap_or("").to_string();
+        Some(("call", sub_matches)) => {
+            let requested_action = sub_matches.get_one::<String>("method").map(|s| s.as_str()).unwrap_or("");
+            let arg = sub_matches.get_one::<String>("arg").map(|s| s.as_str()).unwrap_or("");
 
             if !requested_action.is_empty() {
                 let conn = Connection::new_session()?;
                 let detected_players = find_media_players(&conn).unwrap();
 
-                if sub_matches.is_present("all") {
+                if sub_matches.get_flag("all") {
                     for player in detected_players {
                         dbus_call(&conn, &player, &requested_action, &arg);
                     }
@@ -199,9 +176,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-        }
 
-        confy::store("mediaplayer-controller", cfg)?;
+            confy::store("mediaplayer-controller", cfg)?;
+        }
+        _ => (),
     }
 
     Ok(())
