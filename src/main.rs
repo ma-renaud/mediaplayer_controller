@@ -1,10 +1,10 @@
-use dbus::{arg, blocking::Connection};
-use std::time::Duration;
-use regex::{Regex};
 use clap::{Arg, ArgAction, Command};
 use confy;
-use serde_derive::{Serialize, Deserialize};
 use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
+use dbus::{arg, blocking::Connection};
+use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct PlayerPriority {
@@ -21,18 +21,35 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            priorities: vec![PlayerPriority { player_name: String::from("spotify"), priority: 25 },
-                             PlayerPriority { player_name: String::from("Lollypop"), priority: 20 },
-                             PlayerPriority { player_name: String::from("rhythmbox"), priority: 15 },
-                             PlayerPriority { player_name: String::from("io.github.GnomeMpv"), priority: 10 },
-                             PlayerPriority { player_name: String::from("chromium"), priority: 5 }]
+            priorities: vec![
+                PlayerPriority {
+                    player_name: String::from("spotify"),
+                    priority: 25,
+                },
+                PlayerPriority {
+                    player_name: String::from("Lollypop"),
+                    priority: 20,
+                },
+                PlayerPriority {
+                    player_name: String::from("rhythmbox"),
+                    priority: 15,
+                },
+                PlayerPriority {
+                    player_name: String::from("io.github.GnomeMpv"),
+                    priority: 10,
+                },
+                PlayerPriority {
+                    player_name: String::from("brave"),
+                    priority: 5,
+                },
+            ],
         }
     }
 }
 
 fn find_media_players(conn: &Connection) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let proxy = conn.with_proxy("org.freedesktop.DBus", "/", Duration::from_millis(5000));
-    let (names, ): (Vec<String>, ) = proxy.method_call("org.freedesktop.DBus", "ListNames", ())?;
+    let (names,): (Vec<String>,) = proxy.method_call("org.freedesktop.DBus", "ListNames", ())?;
 
     let re = Regex::new(r"org.mpris.MediaPlayer2.(.+)").unwrap();
     let detected_players: Vec<String> = names.iter().filter(|name| re.is_match(&name)).cloned().collect();
@@ -45,7 +62,10 @@ fn sort_players(players: &Vec<String>, cfg: &Config) -> Vec<PlayerPriority> {
     for name in players {
         let player = get_player_name_from_bus(&name);
         match cfg.priorities.iter().find(|x| x.player_name == player) {
-            Some(player_priority) => ordered_players.push(PlayerPriority { player_name: String::from(name), priority: player_priority.priority }),
+            Some(player_priority) => ordered_players.push(PlayerPriority {
+                player_name: String::from(name),
+                priority: player_priority.priority,
+            }),
             None => (),
         }
     }
@@ -74,22 +94,22 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
 
     if !arg.is_empty() {
         if method == "Volume" {
-            let action = arg.parse::<String>().unwrap_or_else(|error| {
-                println!("Problem converting volume action: {:?}", error);
-                String::from("")
-            });
-
-            let volume: &dyn arg::RefArg = &(p.get("org.mpris.MediaPlayer2.Player", "Volume") as Result<Box<dyn arg::RefArg + 'static>, dbus::Error>).unwrap();
+            let action = arg.parse::<String>().unwrap_or(String::from(""));
+            let volume: &dyn arg::RefArg = &(p.get("org.mpris.MediaPlayer2.Player", "Volume")
+                as Result<Box<dyn arg::RefArg + 'static>, dbus::Error>)
+                .unwrap();
 
             if let Some(volume) = volume.as_f64() {
                 if action == "+" {
-                    p.set("org.mpris.MediaPlayer2.Player", "Volume", volume + 0.05).unwrap_or({
-                        println!("Problem increasing volume");
-                    });
+                    p.set("org.mpris.MediaPlayer2.Player", "Volume", volume + 0.05)
+                        .unwrap_or({
+                            println!("Problem increasing volume");
+                        });
                 } else if action == "-" {
-                    p.set("org.mpris.MediaPlayer2.Player", "Volume", volume - 0.05).unwrap_or({
-                        println!("Problem lowering volume");
-                    });
+                    p.set("org.mpris.MediaPlayer2.Player", "Volume", volume - 0.05)
+                        .unwrap_or({
+                            println!("Problem lowering volume");
+                        });
                 }
             }
         } else {
@@ -98,20 +118,23 @@ fn dbus_call(conn: &Connection, bus: &str, method: &str, arg: &str) {
                 0
             });
 
-            p.method_call("org.mpris.MediaPlayer2.Player", method, (offset, )).unwrap_or_else(|error| {
-                eprintln!("Problem calling the dbus method: {:?}", error);
-            });
+            p.method_call("org.mpris.MediaPlayer2.Player", method, (offset,))
+                .unwrap_or_else(|error| {
+                    eprintln!("Problem calling the dbus method: {:?}", error);
+                });
         }
     } else {
         if method == "Shuffle" {
             let shuffle_state: bool = p.get("org.mpris.MediaPlayer2.Player", "Shuffle").unwrap();
-            p.set("org.mpris.MediaPlayer2.Player", "Shuffle", !shuffle_state).unwrap_or_else(|error| {
-                eprintln!("Problem setting the dbus property: {:?}", error);
-            });
+            p.set("org.mpris.MediaPlayer2.Player", "Shuffle", !shuffle_state)
+                .unwrap_or_else(|error| {
+                    eprintln!("Problem setting the dbus property: {:?}", error);
+                });
         } else {
-            p.method_call("org.mpris.MediaPlayer2.Player", method, ()).unwrap_or_else(|error| {
-                eprintln!("Problem calling the dbus method: {:?}", error);
-            });
+            p.method_call("org.mpris.MediaPlayer2.Player", method, ())
+                .unwrap_or_else(|error| {
+                    eprintln!("Problem calling the dbus method: {:?}", error);
+                });
         }
     }
 }
@@ -121,25 +144,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .version("0.2.0")
         .author("Marc-André Renaud <ma.renaud@slashvoid.com>")
         .about("Call various actions of active media players")
-        .subcommand(Command::new("list")
-            .about("List discovered players.")
-        )
-        .subcommand(Command::new("call")
-            //.setting(AppSettings::AllowLeadingHyphen)
-            .about("Call a dbus method")
-            .arg(Arg::new("method")
-                .help("Method to call")
-                .index(1)
-                .required(true))
-            .arg(Arg::new("arg")
-                .help("Method argument")
-                .index(2)
-                .requires("method"))
-            .arg(Arg::new("all")
-                .help("Apply action to all discovered media players")
-                .long("all")
-                .action(ArgAction::SetTrue)
-                .requires("method"))
+        .subcommand(Command::new("list").about("List discovered players."))
+        .subcommand(
+            Command::new("call")
+                //.setting(AppSettings::AllowLeadingHyphen)
+                .about("Call a dbus method")
+                .arg(Arg::new("method").help("Method to call").index(1).required(true))
+                .arg(Arg::new("arg").help("Method argument").index(2).requires("method"))
+                .arg(
+                    Arg::new("all")
+                        .help("Apply action to all discovered media players")
+                        .long("all")
+                        .action(ArgAction::SetTrue)
+                        .requires("method"),
+                ),
         )
         .get_matches();
 
@@ -154,7 +172,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Some(("call", sub_matches)) => {
-            let requested_action = sub_matches.get_one::<String>("method").map(|s| s.as_str()).unwrap_or("");
+            let requested_action = sub_matches
+                .get_one::<String>("method")
+                .map(|s| s.as_str())
+                .unwrap_or("");
             let arg = sub_matches.get_one::<String>("arg").map(|s| s.as_str()).unwrap_or("");
 
             if !requested_action.is_empty() {
