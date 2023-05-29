@@ -143,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .get_matches();
 
-    let cfg = confy::load("mediaplayer-controller").unwrap_or_default();
+    let cfg = confy::load("mediaplayer-controller", None).unwrap_or_default();
 
     match matches.subcommand() {
         Some(("list", _sub_matches)) => {
@@ -177,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            confy::store("mediaplayer-controller", cfg)?;
+            confy::store("mediaplayer-controller", None, cfg)?;
         }
         _ => (),
     }
